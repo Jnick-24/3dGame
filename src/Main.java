@@ -27,7 +27,6 @@ import java.awt.geom.Line2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.RenderedImage;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -35,6 +34,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 import javax.imageio.ImageIO;
 import javax.swing.JComponent;
@@ -50,7 +50,7 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 	
 	static double fieldOfView = 70;
 	
-	
+	static boolean doDrawBackground = true;
 	
 	
 	
@@ -74,7 +74,6 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 	
 	
 	static double aspectRatio = 1;
-	static Orientation3d cameraOrientation = new Orientation3d();
 	static boolean didStart = false;
 	static boolean freeLook = false;
 	static double halfPi = Math.PI/2;
@@ -87,7 +86,9 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 	static int black = Color.black.getRGB();
 	static boolean showFps = true;
     static String storagePath = System.getenv("APPDATA") + File.separator + "3dTestGame" + File.separator;
+	static int camObjLock = 0;
 	
+	static Image hudBackground;
 	
 	static List<Button> buttonList = new ArrayList<Button>(); // Name : (x1, y1 ; x2, y2)
 	static Image pauseBufferImage;
@@ -109,8 +110,19 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 	static Map<Vector3d, Color> skybox = new HashMap<Vector3d, Color>();
 	
 	static Object3d camera = new Object3d();
-	static Object3d testShip = new Object3d(new Model3d("model/basicShip", "obj", Color.black), "ship");
-	static Object3d testCockpit = new Object3d(new Model3d("model/cockpitInterior", "obj", Color.black), "playerShip");
+	
+	static Object3d[] objects = new Object3d[] {
+			new Object3d(),
+			new Object3d(new Model3d("model/basicShip", "obj", Color.black), "ship"),
+			new Object3d(new Model3d("model/cockpitInterior", "obj", Color.black), "playerShip")
+	};
+	
+	
+	static boolean buildMode = false;
+	static int toolbarSelection = 0;
+	static Cube3d[] toolbar = new Cube3d[] {
+			Cube3d.testCube()
+	};
 	
 	public static void main(String[] args) {
 	        //Schedule a job for the event dispatch thread:
@@ -122,7 +134,6 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 	        });
 	        Main test = new Main();
 	        
-
 		    // Use relative path for Unix systems
 		    File f = new File(storagePath + "readme.txt");
 		    
@@ -136,6 +147,8 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 			} catch (IOException e1) {
 				e1.printStackTrace();
 			}
+		    
+		    
 		    
 	        
 	        while (!didStart) {
@@ -159,6 +172,7 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 	        //Create and set up the window.
 	    	try {
 				icon = ImageIO.read(new File("img/icon.png").getAbsoluteFile());
+				hudBackground = ImageIO.read(new File("img/HudBackground.png").getAbsoluteFile());
 			} catch (IOException e) {
 				//System.out.println(e);
 			}
@@ -500,34 +514,67 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 			startup();
 		}
 
+		static boolean blockPlaced = false;
 		public static void drawScene(Graphics g) {
 			camera.update();
 
-			drawFromObject(testShip, g, false);
+			//drawFromObject(objects[1], g, false);
 			
 			
-			//camera.pos = testCockpit.pos.add(cameraOrientation.forward.multiply(1).add(cameraOrientation.up.multiply(0.7)));
-			camera.pos = testCockpit.pos.subtract(cameraOrientation.forward.multiply(1).add(cameraOrientation.up.multiply(0.7)));
-			/*if (freeLook) testCockpit.rotCenter = cameraOrientation.forward.multiply(2.75);
+			//camera.pos = objects[2].pos.add(camera.orient.forward.multiply(1).add(camera.orient.up.multiply(0.7)));
+			camera.pos = objects[camObjLock].pos.subtract(camera.orient.forward.multiply(1).add(camera.orient.up.multiply(-0.7)));
+			/*if (freeLook) objects[2].rotCenter = camera.orient.forward.multiply(2.75);
 			else {
-				testCockpit.rotCenter = new Vector3d();
-				testCockpit.angle = new Vector3d(-camera.angle.y, -camera.angle.x, camera.angle.z);
+				objects[2].rotCenter = new Vector3d();
+				objects[2].angle = new Vector3d(-camera.angle.y, -camera.angle.x, camera.angle.z);
 			}*/
 			if (freeLook) {
-				//testCockpit.position = testCockpit.position.subtract(cameraOrientation.forward.multiply(0.9));
+				//objects[2].position = objects[2].position.subtract(camera.orient.forward.multiply(0.9));
 			}
 			else {
-				testCockpit.angle = new Vector3d(-camera.angle.y, -camera.angle.x, 0);
+				if (camObjLock != 0) objects[camObjLock].angle = new Vector3d(-camera.angle.y, -camera.angle.x, 0);
+				//if (camObjLock != 0) objects[camObjLock].rotation = camera.rotation.copy();
 			}
 			
-			//drawFromObject(testCockpit, g, true);
+			// TODO: Lock obj rotation to cam/vice versa
+			//objects[camObjLock].rotation = Quaternion.fromEuler(camera.angle.y, -camera.angle.x, Math.PI);
+			
+			if (buildMode) {
+				Vector3d lookPos = objects[0].pos.add(camera.orient.up.multiply(0.75)).add(camera.orient.forward.multiply(10)).round(0);
+				if (blockPlaced) {
+					if (toolbarSelection != 0) objects[2].blocks.put(lookPos, toolbar[toolbarSelection-1]);
+					blockPlaced = false;
+				}
+				
+				TreeMap<Vector3d, Cube3d> sortedCubes = new TreeMap<Vector3d, Cube3d>();
+				sortedCubes.putAll(objects[2].blocks);
+				
+				sortedCubes.forEach((pos, cube) -> {
+					drawFromCube(cube, pos, g);
+				});
+				try {
+					drawFromCube(toolbar[toolbarSelection-1], lookPos, g);
+				} catch (Exception e){}
+			}
+			else {
+				boolean isInCockpit = camObjLock == 2;
+				for (Object3d obj : objects) {
+					if ((obj == objects[2] && isInCockpit) || obj.model == null) continue;
+					drawFromObject(obj, g, false);
+				}
+				if (isInCockpit) drawFromObject(objects[2], g, true);
+			}
 		}
 		
 		public static void drawHud(Graphics g, CPoint c) {
+			if (camObjLock == 0 && !buildMode) {
+				g.drawImage(hudBackground, 0, 0, null);
+			}
+			
 			g.drawString("Camera Angle: (" + Math.round(Math.toDegrees(camera.angle.x)) + ", " + Math.round(Math.toDegrees(camera.angle.y)) + ", " + Math.round(Math.toDegrees(camera.angle.z)) + ")", 10, 10);
 			g.drawString("Camera Position: " + camera.pos.round(1), 10, 25);
-			g.drawString("Ship Angle: (" + Math.round(Math.toDegrees(testShip.angle.x)) + ", " + Math.round(Math.toDegrees(testShip.angle.y)) + ", " + Math.round(Math.toDegrees(testShip.angle.z)) + ")", 10, 55);
-			
+			if (buildMode) g.drawString("Build Mode", 10, 55);
+			else g.drawString("In " + (camObjLock == 0 ? "suit" : "object " + objects[camObjLock].name) + " (F to enter/exit)", 10, 55);
 			
 			g.drawLine((int)c.x - 5, (int)c.y, (int)c.x - 15, (int)c.y);
 			g.drawLine((int)c.x + 5, (int)c.y, (int)c.x + 15, (int)c.y);
@@ -539,16 +586,37 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 				g.drawString("Memory Util: " + runtime.totalMemory()/1048576d + "mb (" + (int)((runtime.totalMemory()/(double)(runtime.totalMemory()-runtime.freeMemory()))*10)/10d + "%)", 10, 70);
 			}
 			
-			CPoint hudDraw = project3d(testCockpit.model.getSubobject("Screen.001", new Vector3d(-0.25, 0.15, 0), testCockpit.pos, testCockpit.oldAngle, testCockpit.angle), camera.angle, camera.pos, false).multiply(c.multiply(2));
-			g.drawString(camera.pos.round(1).toString(), (int)(hudDraw.x + c.x), (int)(-hudDraw.y + c.y));
+			if (camObjLock == 2) {
+				CPoint hudDraw = project3d(objects[2].model.getSubobject("Screen.001", new Vector3d(-0.25, 0.15, 0), objects[2].pos, objects[2].oldAngle, objects[2].angle), camera.angle, camera.pos, false).multiply(c.multiply(2));
+				g.drawString(camera.pos.round(1).toString(), (int)(hudDraw.x + c.x), (int)(-hudDraw.y + c.y));
+				
+				hudDraw = project3d(objects[2].model.getSubobject("Screen.002", new Vector3d(0, 0.25, 0), objects[2].pos, objects[2].oldAngle, objects[2].angle), camera.angle, camera.pos, false).multiply(c.multiply(2));
+				g.drawString(String.valueOf(objects[2].throttle), (int)(hudDraw.x + c.x), (int)(-hudDraw.y + c.y));
+				
+				hudDraw = project3d(objects[2].model.getSubobject("Screen.003", new Vector3d(0, 0.25, 0), objects[2].pos, objects[2].oldAngle, objects[2].angle), camera.angle, camera.pos, false).multiply(c.multiply(2));
+	
+				g.setColor(Color.red);
+				g.drawLine((int)hudDraw.x, (int)hudDraw.y, (int)hudDraw.x, (int)hudDraw.y + (int)(objects[2].throttle*2));
+			}
 			
-			hudDraw = project3d(testCockpit.model.getSubobject("Screen.002", new Vector3d(0, 0.25, 0), testCockpit.pos, testCockpit.oldAngle, testCockpit.angle), camera.angle, camera.pos, false).multiply(c.multiply(2));
-			g.drawString(String.valueOf(testCockpit.throttle), (int)(hudDraw.x + c.x), (int)(-hudDraw.y + c.y));
-			
-			hudDraw = project3d(testCockpit.model.getSubobject("Screen.003", new Vector3d(0, 0.25, 0), testCockpit.pos, testCockpit.oldAngle, testCockpit.angle), camera.angle, camera.pos, false).multiply(c.multiply(2));
-
-			g.setColor(Color.red);
-			g.drawLine((int)hudDraw.x, (int)hudDraw.y, (int)hudDraw.x, (int)hudDraw.y + (int)(testCockpit.throttle*2));
+			if (buildMode) {
+				// 32*32 image with 10px spacing.
+				int t = mainCanvas.getHeight()-42;
+				// TODO: Make seperate image; this is pretty non-performant.
+				//g.drawImage(Cube3d.testCube().thumbnail, (int)c.x - 210, t, null);
+				//g.drawImage(Cube3d.testCube().thumbnail, (int)c.x - 168, t, null);
+				//g.drawImage(Cube3d.testCube().thumbnail, (int)c.x - 126, t, null);
+				//g.drawImage(Cube3d.testCube().thumbnail, (int)c.x - 84, t, null);
+				//g.drawImage(Cube3d.testCube().thumbnail, (int)c.x - 42, t, null);
+				//g.drawImage(Cube3d.testCube().thumbnail, (int)c.x, t, null);
+				//g.drawImage(Cube3d.testCube().thumbnail, (int)c.x + 42, t, null);
+				//g.drawImage(Cube3d.testCube().thumbnail, (int)c.x + 84, t, null);
+				//g.drawImage(Cube3d.testCube().thumbnail, (int)c.x + 126, t, null);
+				//g.drawImage(Cube3d.testCube().thumbnail, (int)c.x + 168, t, null);
+				
+				g.setColor(Color.cyan);
+				g.drawRect(((int)c.x - 210) + (toolbarSelection == 0 ? 9 : toolbarSelection - 1)*42, t, 32, 32);
+			}
 		}
 		
 		static ActionListener render = new ActionListener() {
@@ -605,16 +673,20 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 				camera.angle.y %= Math.PI*2;
 				camera.angle.z %= Math.PI*2;
 				
-				cameraOrientation.forward = new Vector3d(0, 0, -1).rotate(new Vector3d(1, 0, 0), -camera.angle.x).rotate(new Vector3d(0, 1, 0), -camera.angle.y).normalize();
-				cameraOrientation.right = cameraOrientation.forward.cross(new Vector3d(0, camera.angle.x >= halfPi && camera.angle.x <= halfPi*3 ? -1 : 1, 0)).normalize().rotate(cameraOrientation.forward, camera.angle.z);
-				cameraOrientation.up = cameraOrientation.forward.cross(cameraOrientation.right).normalize();
+				camera.orient.forward = new Vector3d(0, 0, -1).rotate(new Vector3d(1, 0, 0), -camera.angle.x).rotate(new Vector3d(0, 1, 0), -camera.angle.y).normalize();
+				camera.orient.right = camera.orient.forward.cross(new Vector3d(0, camera.angle.x >= halfPi && camera.angle.x <= halfPi*3 ? -1 : 1, 0)).normalize().rotate(camera.orient.forward, camera.angle.z);
+				camera.orient.up = camera.orient.forward.cross(camera.orient.left()).normalize();
 				
-				drawBackground();
+				objects[camObjLock].orient = camera.orient;
+				
+				if (doDrawBackground && !buildMode) drawBackground();
 				
 				g.setColor(Color.white);
 				drawScene(g);
 				
-				drawLine(testShip.orient.up.multiply(10), testShip.pos, Color.red, g, false);
+				drawLine(objects[1].orient.up.multiply(10), objects[1].pos, Color.blue, g, false);
+				drawLine(objects[1].orient.right.multiply(10), objects[1].pos, Color.red, g, false);
+				drawLine(objects[1].orient.forward.multiply(10), objects[1].pos, Color.green, g, false);
 				
 				g.setColor(Color.white);
 				drawHud(g, c);
@@ -638,7 +710,7 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 				if (key.angleBetween(camera.angle) < drawLimit || true) {
 					CPoint a = project3d(key, new Vector3d(-camera.angle.x, camera.angle.y, 0), new Vector3d(), true).multiply(new CPoint(mainCanvas.getWidth(), mainCanvas.getHeight()));
 					try {
-						CPoint pos = new CPoint(a.x + mainCanvas.getWidth()/2, a.y + mainCanvas.getHeight()/2);
+						CPoint pos = CPoint.rotatePoint(new CPoint(a.x + mainCanvas.getWidth()/2, a.y + mainCanvas.getHeight()/2), -camera.angle.z, mainCanvas.getWidth()/2, mainCanvas.getHeight()/2);
 						
 						bufferImage.setRGB((int)pos.x, (int)pos.y, skybox.get(key).getRGB());
 						for (int i = 1; i < key.w; i++) {
@@ -693,6 +765,34 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 		}
 		
 		
+		static Vector3d oldPosition = new Vector3d();
+		static Vector3d oldOrient = new Vector3d();
+		public static void toggleBuildMode() {
+			if (buildMode) {
+				objects[0].pos = oldPosition;
+				camera.angle = oldOrient;
+				mainCanvas.setBackground(Color.black);
+			}
+			else {
+				oldPosition = objects[0].pos;
+				oldOrient = camera.angle;
+				objects[0].pos = new Vector3d();
+				mainCanvas.setBackground(new Color(20, 20, 20));
+			}
+			
+			buildMode = !buildMode;
+		}
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
 		
 		public static void drawLine(Vector3d origin, Vector3d end, Color color, Graphics g, boolean fixedToPlayer) {
 			int cX = mainCanvas.getWidth()/2;
@@ -708,18 +808,24 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 			drawPos = project3d(origin, camera.angle, camera.pos, fixedToPlayer);
 			endPos = project3d(end, camera.angle, camera.pos, fixedToPlayer);
 			
+		    if (drawPos.x > mainCanvas.getWidth()) drawPos = drawPos.multiply(drawPos.x/mainCanvas.getWidth());
+		    if (drawPos.y > mainCanvas.getHeight()) drawPos = drawPos.multiply(drawPos.y/mainCanvas.getHeight());
+		    
+		    if (endPos.x > mainCanvas.getWidth()) endPos = endPos.multiply(endPos.x/mainCanvas.getWidth());
+		    if (endPos.y > mainCanvas.getHeight()) endPos = endPos.multiply(endPos.y/mainCanvas.getHeight());
+			
 			if (drawPos.equals(new CPoint())) return;
 			g.drawLine((int)(drawPos.x*s.x + cX), (int)(-drawPos.y*s.y + cY), (int)(endPos.x*s.x + cX), (int)(-endPos.y*s.y + cY));
 		}
 		
-		public static CPoint testVec(Vector3d v1, Object3d object, boolean fixedToPlayer, CPoint s) {
+		public static CPoint testVec(Vector3d v1, Vector3d pos, boolean fixedToPlayer, CPoint s) {
 			
-			//if (drawLimit <= v1.subtract(camera.pos).angleBetween(cameraOrientation.forward) && !sizeInvariant) {
+			//if (drawLimit <= v1.subtract(camera.pos).angleBetween(camera.orient.forward) && !sizeInvariant) {
 			//	return new CPoint();
 			//}
-			v1 = v1.add(object.pos);
+			v1 = v1.add(pos);
 			
-			if (cameraOrientation.forward.dot(v1.subtract(camera.pos).normalize()) < 0) {
+			if (camera.orient.forward.dot(v1.subtract(camera.pos).normalize()) < 0) {
 				return new CPoint();
 			}
 			
@@ -746,7 +852,7 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 			} catch (Exception e) {
 			}
 			for (Poly3d poly : obj.model.triangles) {
-				if (cameraOrientation.forward.dot(poly.normal)-fovPercent > 0) continue;
+				if (camera.orient.forward.dot(poly.normal)-fovPercent > 0) continue;
 				
 				CPoint s = new CPoint(mainCanvas.getWidth(), -mainCanvas.getHeight());
 				CPoint[] drawPoints = new CPoint[poly.points.length];
@@ -755,10 +861,20 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 				
 				
 				for (int i = 0; i < poly.points.length; i++) {
-					drawPoints[i] = testVec(poly.points[i], obj, fixedToPlayer, s);
+					drawPoints[i] = testVec(poly.points[i], obj.pos, fixedToPlayer, s);
 					if (drawPoints[i].equals(new CPoint())) continue;
 
+					//if (drawPoints[i].x < -c.x) drawPoints[i] = drawPoints[i].multiply(drawPoints[i].x/-c.x);
+					//if (drawPoints[i].y < -c.y) drawPoints[i] = drawPoints[i].multiply(drawPoints[i].y/-c.y);
+					
 					drawPoints[i] = drawPoints[i].add(c);
+					
+					//if (drawPoints[i].x > mainCanvas.getWidth()) drawPoints[i] = drawPoints[i].multiply(drawPoints[i].x/mainCanvas.getWidth());
+				    //if (drawPoints[i].y > mainCanvas.getHeight()) drawPoints[i] = drawPoints[i].multiply(drawPoints[i].y/mainCanvas.getHeight());
+									    
+				    if (drawPoints[i].equals(new CPoint())) continue;
+				    
+				    
 					xDrawPoints[i] = (int)drawPoints[i].x;
 					yDrawPoints[i] = (int)drawPoints[i].y;
 					
@@ -789,11 +905,82 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 			}
 		}
 		
+		public static void drawFromCube(Cube3d obj, Vector3d pos, Graphics g) {
+			drawFromModel(obj.model, pos, g);
+		}
+		
+		public static void drawFromModel(Model3d model, Vector3d pos, Graphics g) {
+			CPoint c = new CPoint(mainCanvas.getWidth()/2, mainCanvas.getHeight()/2);			
+			
+			try {
+				Arrays.sort(model.triangles, (o1, o2) -> (int)(o2.center().add(pos).distanceSq(camera.pos)-o1.center().add(pos).distanceSq(camera.pos)));
+			} catch (Exception e) {
+			}
+			for (Poly3d poly : model.triangles) {
+				if (camera.orient.forward.dot(poly.normal)-fovPercent > 0) continue;
+				
+				CPoint s = new CPoint(mainCanvas.getWidth(), -mainCanvas.getHeight());
+				CPoint[] drawPoints = new CPoint[poly.points.length];
+				int[] xDrawPoints = new int[poly.points.length];
+				int[] yDrawPoints = new int[poly.points.length];
+				
+				
+				for (int i = 0; i < poly.points.length; i++) {
+					drawPoints[i] = testVec(poly.points[i], pos, false, s);
+					if (drawPoints[i].equals(new CPoint())) continue;
+
+					//if (drawPoints[i].x < -c.x) drawPoints[i] = drawPoints[i].multiply(drawPoints[i].x/-c.x);
+					//if (drawPoints[i].y < -c.y) drawPoints[i] = drawPoints[i].multiply(drawPoints[i].y/-c.y);
+					
+					drawPoints[i] = drawPoints[i].add(c);
+					
+					//if (drawPoints[i].x > mainCanvas.getWidth()) drawPoints[i] = drawPoints[i].multiply(drawPoints[i].x/mainCanvas.getWidth());
+				    //if (drawPoints[i].y > mainCanvas.getHeight()) drawPoints[i] = drawPoints[i].multiply(drawPoints[i].y/mainCanvas.getHeight());
+									    
+				    if (drawPoints[i].equals(new CPoint())) continue;
+				    
+				    
+					xDrawPoints[i] = (int)drawPoints[i].x;
+					yDrawPoints[i] = (int)drawPoints[i].y;
+					
+					//if (new Rectangle(0, 0, mainCanvas.getWidth(), mainCanvas.getHeight()).contains(drawPoints[i].toPoint2D())) {
+					//	isAllOffScreen = false;
+					//}
+				}
+				
+				
+				
+				
+				boolean isAllOffScreen = true;
+				g.setColor(model.color);
+				for (int i = 0; i < drawPoints.length; i++) {
+					
+					int j = i < drawPoints.length-1 ? i+1 : 0;
+					if (xDrawPoints[i] == 0 || xDrawPoints[j] == 0) continue;
+					
+					g.drawLine(xDrawPoints[i], yDrawPoints[i], xDrawPoints[j], yDrawPoints[j]);
+					
+					if (new Line2D.Double(xDrawPoints[i], yDrawPoints[i], xDrawPoints[j], yDrawPoints[j]).intersects(new Rectangle(0, 0, mainCanvas.getWidth(), mainCanvas.getHeight()))) {
+						isAllOffScreen = false;
+					}
+				}
+				
+				g.setColor(poly.color);
+				if (!isAllOffScreen) g.fillPolygon(xDrawPoints, yDrawPoints, poly.points.length);
+			}
+		}
+		
+		
+		
+		
+		
+		
 		public static CPoint project3d(Vector3d point, Vector3d cameraAngle, Vector3d cameraPosit, boolean fixedToPlayer) {
 			CPoint drawPos = new CPoint();
 			Vector3d cameraPosition = cameraPosit.copy();
 			
 			point = point.subtract(cameraPosition)
+					//.qRotate(camera.rotation)
 					//.rotate(new Vector3d(0, 0, 1), -cameraAngle.z) // Cam Roll
 					.rotate(new Vector3d(0, 1, 0), cameraAngle.y) // Cam Pitch
 					.rotate(new Vector3d(1, 0, 0), cameraAngle.x) // Cam Yaw
@@ -801,7 +988,7 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 			
 			point = point.add(cameraPosition.multiply(-1));
 			double z = (point.z == 0 ? 1 : -point.z);
-		
+		    //if (z < 1) return new CPoint();
 			
 		    drawPos.x = point.x / z;
 
@@ -814,9 +1001,12 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 		    drawPos = drawPos.add(0.0000000000000000000001).multiply(Math.tan(fieldOfView / 2));
 		    drawPos.y *= aspectRatio;
 		    //if (Double.isNaN(drawPos.x) || Double.isInfinite(drawPos.x) || drawPos.x == 0) System.out.println("Issue @ " + point);
-
-		    
+		    //if (frameCt % 2 == 0 && z < 10) {
+		    //	mainCanvas.getGraphics().setColor(Color.white);
+		    //	mainCanvas.getGraphics().drawString(String.valueOf(z), (int)(drawPos.x*mainCanvas.getWidth() + mainCanvas.getWidth()/2), (int)(-drawPos.y*mainCanvas.getHeight() + mainCanvas.getHeight()/2));
+		    //}
 		    //drawPos.clamp(1.5);
+		    
 			return drawPos;
 		}
 		
@@ -829,17 +1019,32 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 		
 		public static void handleKeyInputs() {
 			if (keyInput.get(87)) { // W
-				if (testCockpit.throttle < 1) testCockpit.throttle += 0.025;
-				else testCockpit.throttle = 1;
+				if (camObjLock == 2) {
+					if (objects[camObjLock].throttle < 1) objects[camObjLock].throttle += 0.025;
+					else objects[camObjLock].throttle = 1;
+				}
+				else objects[camObjLock].pos = objects[camObjLock].pos.add(objects[camObjLock].orient.forward);
 			}
-			if (keyInput.get(65)) { // A
-				testCockpit.pos = testCockpit.pos.subtract(testCockpit.orient.right);
-			}
+			
 			if (keyInput.get(83)) { // S
-				testCockpit.throttle = 0;
+				if (camObjLock == 2) {
+					if (objects[camObjLock].throttle > -1) objects[camObjLock].throttle -= 0.025;
+					else objects[camObjLock].throttle = -1;
+				}
+				else objects[camObjLock].pos = objects[camObjLock].pos.subtract(objects[camObjLock].orient.forward);
 			}
+			
+			if (keyInput.get(88)) {
+				objects[camObjLock].throttle = 0;
+			}
+			
+			
+			if (keyInput.get(65)) { // A
+				objects[camObjLock].pos = objects[camObjLock].pos.subtract(objects[camObjLock].orient.right);
+			}
+			
 			if (keyInput.get(68)) { // D
-				testCockpit.pos = testCockpit.pos.add(testCockpit.orient.right);
+				objects[camObjLock].pos = objects[camObjLock].pos.add(objects[camObjLock].orient.right);
 			}
 			if (keyInput.get(81)) { // Q
 				camera.angle.z -= Math.toRadians(2);
@@ -848,37 +1053,37 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 				camera.angle.z += Math.toRadians(2);
 			}
 			if (keyInput.get(32)) { // space
-				testCockpit.pos = testCockpit.pos.add(testCockpit.orient.up);
+				objects[camObjLock].pos = objects[camObjLock].pos.add(objects[camObjLock].orient.up);
 			}
 			if (keyInput.get(67)) { // C
-				testCockpit.pos = testCockpit.pos.subtract(testCockpit.orient.up);
+				objects[camObjLock].pos = objects[camObjLock].pos.subtract(objects[camObjLock].orient.up);
 			}
 			
 			// @ pi pitch, yaw0.5 roll0.5. at 0 pitch, yaw1 roll0. at 2pi pitch, yaw0 roll1
 			if (keyInput.get(38)) { // Up
-				testShip.rotateY(0.01);
+				objects[1].rotateY(0.02);
 			}
 			if (keyInput.get(40)) { // Down
-				testShip.rotateY(-0.01);
+				objects[1].rotateY(-0.02);
 			}
 			if (keyInput.get(37)) { // Left
-				testShip.rotateX(-0.01);
+				objects[1].rotateX(-0.02);
 			}
 			if (keyInput.get(39)) { // Right
-				testShip.rotateX(0.01);
-			}
+				objects[1].rotateX(0.02);
+			}			
+			
 			if (keyInput.get(27)) { //esc
 				drawPrevMenu();
 			}
 		}
 		
 		public void keyPressed(KeyEvent e) {
-			// TODO Auto-generated method stub
 			System.out.println("Key pressed '" + e.getKeyChar() + "' : " + e.getKeyCode());
 			switch (e.getKeyCode()) {				
 				case 82: // R
 					camera.angle = new Vector3d();
-					testCockpit.pos = new Vector3d();
+					objects[2].pos = new Vector3d();
 					break;
 				case 123: //F12
 					File f = new File(storagePath + System.currentTimeMillis() + ".png");
@@ -892,6 +1097,45 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 						e1.printStackTrace();
 					}
 					System.out.println("Attempted Screenshot");
+					break;
+				case 70: // F
+					if (!buildMode) {
+						if (camObjLock == 2) objects[0].pos = objects[2].pos.add(camera.orient.forward.multiply(10));
+						camObjLock = camObjLock == 0 ? 2 : 0;
+					}
+					break;
+				case 75: // K
+					if (camObjLock == 0) toggleBuildMode();
+					break;
+				case 48: // 0
+					toolbarSelection = 0;
+					break;
+				case 49: // 1
+					toolbarSelection = 1;
+					break;
+				case 50: // 2
+					toolbarSelection = 2;
+					break;
+				case 51: // 3
+					toolbarSelection = 3;
+					break;
+				case 52: // 4
+					toolbarSelection = 4;
+					break;
+				case 53: // 5
+					toolbarSelection = 5;
+					break;
+				case 54: // 6
+					toolbarSelection = 6;
+					break;
+				case 55: // 7
+					toolbarSelection = 7;
+					break;
+				case 56: // 8
+					toolbarSelection = 8;
+					break;
+				case 57: // 9
+					toolbarSelection = 9;
 					break;
 			}
 			keyInput.put(e.getKeyCode(), true);
@@ -938,13 +1182,15 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 		public void mousePressed(MouseEvent e) {
 			if (e.getButton() == 2) freeLook = true;
 			if (!hasStarted || isPaused) menuButtonPressed(e);
+
+			if (e.getButton() == 1 && buildMode) blockPlaced = true;
 		}
 
 		@Override
 		public void mouseReleased(MouseEvent e) {
 			if (e.getButton() == 2) {
 				freeLook = false;
-				camera.angle = new Vector3d(-testCockpit.angle.y, -testCockpit.angle.x, testCockpit.angle.z);
+				camera.angle = new Vector3d(-objects[2].angle.y, -objects[2].angle.x, objects[2].angle.z);
 			}
 		}
 
@@ -960,7 +1206,6 @@ public class Main extends JPanel implements MouseListener, MouseWheelListener, K
 
 		@Override
 		public void mouseExited(MouseEvent e) {
-			// TODO Auto-generated method stub
-			
+			drawPrevMenu();
 		}
 }

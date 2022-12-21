@@ -1,5 +1,5 @@
 
-public class Vector3d {
+public class Vector3d implements Comparable<Vector3d>{
 	// why
 	
 	double x = 0;
@@ -133,5 +133,9 @@ public class Vector3d {
 	
 	public Vector3d copy() {
 		return new Vector3d(x, y, z, w);
+	}
+	
+	public int compareTo(Vector3d v) {
+		return (int)(this.lengthSquared() - v.lengthSquared());
 	}
 }

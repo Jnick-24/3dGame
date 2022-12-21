@@ -1,15 +1,17 @@
-
+import java.util.HashMap;
+import java.util.Map;
 
 public class Object3d {
 	Model3d model;
 	Orientation3d orient = new Orientation3d();
-	Quaternion rotation = new Quaternion(new Vector3d(0, 1, 0));
+	Quaternion rotation = new Quaternion(0, 0, 1, 0);
 	Vector3d pos = new Vector3d();
 	Vector3d oldAngle = new Vector3d();
 	Vector3d angle = new Vector3d();
 	Vector3d angleVel = new Vector3d();
 	Vector3d posVel = new Vector3d();
 	String name = "";
+	Map<Vector3d, Cube3d> blocks = new HashMap<Vector3d, Cube3d>();
 	double throttle = 0; // from 0 to 1
 	double maxSpeed = 10 /60; // divide by 60 for m/s to m/tick
 	
@@ -18,6 +20,7 @@ public class Object3d {
 	public Object3d(Model3d m, String id) {
 		model = m;
 		name = id;
+		blocks.put(new Vector3d(), Cube3d.testCube());
 	}
 	
 	public Object3d() {};
@@ -30,7 +33,6 @@ public class Object3d {
 	public void update() {
 		//rotation = rotation.multiply(new Quaternion(orient.up, 0.00));
 		if (model != null) model.rotate(rotation);
-		
 		
 		//pos = pos.add(posVel);
 		angle = angle.add(angleVel);
@@ -64,16 +66,19 @@ public class Object3d {
 	}
 	
 	public void rotateX(double amt) {
+		amt *= -1;
 		rotation = rotation.multiply(new Quaternion(orient.up, amt));
 		orient.forward = orient.forward.rotate(orient.up, amt);
 		orient.right = orient.right.rotate(orient.up, amt);
 	}
 	public void rotateY(double amt) {
+		amt *= -1;
 		rotation = rotation.multiply(new Quaternion(orient.right, amt));
 		orient.forward = orient.forward.rotate(orient.right, amt);
 		orient.up = orient.up.rotate(orient.right, amt);
 	}
 	public void rotateZ(double amt) {
+		amt *= -1;
 		rotation = rotation.multiply(new Quaternion(orient.forward, amt));
 		orient.up = orient.up.rotate(orient.forward, amt);
 		orient.right = orient.right.rotate(orient.forward, amt);
